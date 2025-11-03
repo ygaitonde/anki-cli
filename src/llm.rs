@@ -93,22 +93,13 @@ impl OpenAiClient {
         let parsed: EnglishClozePayload = parse_json(&payload)?;
 
         let word_trimmed = parsed.word.trim().to_string();
-        let mut cloze_sentence = parsed.cloze_sentence.trim().to_string();
-
-        if !cloze_sentence.contains("{{c1::") {
-            tracing::warn!("Cloze sentence missing cloze markup for word: {}", word);
-            cloze_sentence =
-                cloze_sentence.replacen(&word_trimmed, &format!("{{{{c1::{}}}}}", word_trimmed), 1);
-        }
-
         let hint = parsed
             .hint
             .map(|h| h.trim().to_string())
             .filter(|h| !h.is_empty());
 
-        if let Some(ref hint_value) = hint {
-            cloze_sentence = inject_anki_hint(&cloze_sentence, hint_value);
-        }
+        let cloze_sentence =
+            build_cloze_sentence(parsed.cloze_sentence.trim(), &word_trimmed, hint.as_deref());
 
         Ok(EnglishClozeCard {
             word: word_trimmed,
@@ -208,6 +199,143 @@ fn extract_json_block(raw: &str) -> Option<String> {
     }
 
     Some(content.join("\n"))
+}
+
+fn build_cloze_sentence(raw_sentence: &str, word: &str, hint: Option<&str>) -> String {
+    let trimmed = raw_sentence.trim();
+    let original = trimmed.to_string();
+
+    let base_sentence =
+        strip_existing_cloze_markup(trimmed, word).unwrap_or_else(|| original.clone());
+
+    let mut cloze_sentence = match wrap_with_cloze(&base_sentence, word) {
+        Some(wrapped) => wrapped,
+        None => {
+            tracing::warn!(
+                "Failed to insert cloze markup for '{}' - reverting to model output",
+                word
+            );
+            original
+        }
+    };
+
+    if let Some(hint_value) = hint {
+        cloze_sentence = inject_anki_hint(&cloze_sentence, hint_value);
+    }
+
+    cloze_sentence
+}
+
+fn strip_existing_cloze_markup(sentence: &str, replacement: &str) -> Option<String> {
+    let mut result = String::with_capacity(sentence.len());
+    let chars: Vec<char> = sentence.chars().collect();
+    let mut index = 0;
+    let mut replaced = false;
+
+    while index < chars.len() {
+        if chars[index] == '{' {
+            let mut lookahead = index;
+            while lookahead < chars.len() && chars[lookahead] == '{' {
+                lookahead += 1;
+            }
+
+            if lookahead < chars.len() && matches!(chars[lookahead], 'c' | 'C') {
+                let mut after_prefix = lookahead + 1;
+                while after_prefix < chars.len() && chars[after_prefix].is_ascii_digit() {
+                    after_prefix += 1;
+                }
+
+                if after_prefix + 1 < chars.len()
+                    && chars[after_prefix] == ':'
+                    && chars[after_prefix + 1] == ':'
+                {
+                    let mut depth = 0i32;
+                    let mut cursor = index;
+
+                    while cursor < chars.len() {
+                        match chars[cursor] {
+                            '{' => {
+                                depth += 1;
+                            }
+                            '}' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    cursor += 1;
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                        cursor += 1;
+                    }
+
+                    if depth == 0 {
+                        result.push_str(replacement);
+                        index = cursor;
+                        replaced = true;
+                        continue;
+                    } else {
+                        return None;
+                    }
+                }
+            }
+        }
+
+        result.push(chars[index]);
+        index += 1;
+    }
+
+    if replaced { Some(result) } else { None }
+}
+
+fn wrap_with_cloze(sentence: &str, word: &str) -> Option<String> {
+    if sentence.contains("{{c1::") {
+        return Some(sentence.to_string());
+    }
+
+    if let Some(pos) = sentence.find(word) {
+        let end = pos + word.len();
+        let mut result = String::with_capacity(sentence.len() + word.len() + 8);
+        result.push_str(&sentence[..pos]);
+        result.push_str("{{c1::");
+        result.push_str(&sentence[pos..end]);
+        result.push_str("}}");
+        result.push_str(&sentence[end..]);
+        return Some(result);
+    }
+
+    let lower_sentence = sentence.to_lowercase();
+    let lower_word = word.to_lowercase();
+    if let Some(pos) = lower_sentence.find(&lower_word) {
+        let end = advance_by_chars(sentence, pos, word.chars().count());
+        let segment = &sentence[pos..end];
+        let mut result = String::with_capacity(sentence.len() + segment.len() + 8);
+        result.push_str(&sentence[..pos]);
+        result.push_str("{{c1::");
+        result.push_str(segment);
+        result.push_str("}}");
+        result.push_str(&sentence[end..]);
+        return Some(result);
+    }
+
+    tracing::warn!(
+        "Could not locate '{}' inside cloze sentence '{}'",
+        word,
+        sentence
+    );
+    None
+}
+
+fn advance_by_chars(text: &str, start: usize, char_count: usize) -> usize {
+    let mut consumed = 0;
+    for (offset, ch) in text[start..].char_indices() {
+        consumed += 1;
+        if consumed == char_count {
+            return start + offset + ch.len_utf8();
+        }
+    }
+
+    text.len()
 }
 
 fn inject_anki_hint(cloze_sentence: &str, hint: &str) -> String {
