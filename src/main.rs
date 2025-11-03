@@ -57,6 +57,10 @@ struct Cli {
     #[arg(long)]
     dry_run: bool,
 
+    /// Automatically send generated notes to Anki without confirmation
+    #[arg(long)]
+    auto_approve: bool,
+
     /// Enable verbose logging
     #[arg(long)]
     verbose: bool,
@@ -135,6 +139,7 @@ async fn main() -> Result<()> {
         llm: &llm_client,
         config: &config,
         dry_run: cli.dry_run,
+        auto_approve: cli.auto_approve,
     };
 
     match cli.command {

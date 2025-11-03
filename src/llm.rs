@@ -79,12 +79,10 @@ impl OpenAiClient {
         word: &str,
         temperature: f32,
     ) -> Result<EnglishClozeCard> {
-        let system = format!(
-            "You create English cloze deletions for language learners. Generate a short, conversational sentence that uses the target word naturally."
-        );
+        let system = "You create English cloze deletions for learners who want to improve their English vocabulary.".to_string();
 
         let user = format!(
-            "Return STRICT JSON with keys word, cloze_sentence, translation, hint.\nRules:\n- Use Anki cloze syntax {{c1::...}} exactly once around the target word or phrase.\n- Sentence length 8-16 words.\n- Provide a brief translation into Hindi for the translation field.\n- Optional hint should help recall the word and can be null.\nTarget word: {word}"
+            "Return STRICT JSON with keys word, cloze_sentence, translation, hint.\nRules:\n- Use Anki cloze syntax {{c1::...}} exactly once around the target word or phrase.\n- If a hint is provided, include it using the built-in format {{c1::answer::hint}} so Anki can show a hint link.\n- Sentence length 8-16 words.\n- For the translation field, provide a concise English paraphrase or definition that clarifies the meaning of the sentence.\n- Optional hint should help recall the word and can be null.\nTarget word: {word}"
         );
 
         let payload = self
@@ -92,22 +90,31 @@ impl OpenAiClient {
             .await
             .context("failed to fetch English cloze from OpenAI")?;
 
-        let mut parsed: EnglishClozePayload = parse_json(&payload)?;
-        if !parsed.cloze_sentence.contains("{{c1::") {
+        let parsed: EnglishClozePayload = parse_json(&payload)?;
+
+        let word_trimmed = parsed.word.trim().to_string();
+        let mut cloze_sentence = parsed.cloze_sentence.trim().to_string();
+
+        if !cloze_sentence.contains("{{c1::") {
             tracing::warn!("Cloze sentence missing cloze markup for word: {}", word);
-            parsed.cloze_sentence = parsed
-                .cloze_sentence
-                .replace(&parsed.word, &format!("{{{{c1::{}}}}}", parsed.word));
+            cloze_sentence =
+                cloze_sentence.replacen(&word_trimmed, &format!("{{{{c1::{}}}}}", word_trimmed), 1);
+        }
+
+        let hint = parsed
+            .hint
+            .map(|h| h.trim().to_string())
+            .filter(|h| !h.is_empty());
+
+        if let Some(ref hint_value) = hint {
+            cloze_sentence = inject_anki_hint(&cloze_sentence, hint_value);
         }
 
         Ok(EnglishClozeCard {
-            word: parsed.word.trim().to_string(),
-            cloze_sentence: parsed.cloze_sentence.trim().to_string(),
+            word: word_trimmed,
+            cloze_sentence,
             translation: parsed.translation.trim().to_string(),
-            hint: parsed
-                .hint
-                .map(|h| h.trim().to_string())
-                .filter(|h| !h.is_empty()),
+            hint,
         })
     }
 
@@ -201,6 +208,28 @@ fn extract_json_block(raw: &str) -> Option<String> {
     }
 
     Some(content.join("\n"))
+}
+
+fn inject_anki_hint(cloze_sentence: &str, hint: &str) -> String {
+    let hint = hint.trim();
+    if hint.is_empty() {
+        return cloze_sentence.to_string();
+    }
+
+    if let Some(start) = cloze_sentence.find("{{c1::") {
+        let prefix = &cloze_sentence[..start + 6];
+        let rest = &cloze_sentence[start + 6..];
+        if let Some(end_rel) = rest.find("}}") {
+            let inside = &rest[..end_rel];
+            if inside.contains("::") {
+                return cloze_sentence.to_string();
+            }
+            let suffix = &rest[end_rel..];
+            return format!("{}{}::{}{}", prefix, inside, hint, suffix);
+        }
+    }
+
+    cloze_sentence.to_string()
 }
 
 #[derive(Debug, Serialize)]

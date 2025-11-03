@@ -13,6 +13,7 @@ pub struct RunContext<'a> {
     pub llm: &'a OpenAiClient,
     pub config: &'a Config,
     pub dry_run: bool,
+    pub auto_approve: bool,
 }
 
 pub async fn run_hindi_flow(
@@ -42,8 +43,17 @@ pub async fn run_hindi_flow(
             .with_context(|| format!("failed to generate Hindi card for '{word}'"))?;
 
         if ctx.dry_run {
-            print_hindi_preview(&card, &deck);
+            print_hindi_card(&card, &deck, "DRY RUN");
             continue;
+        }
+
+        if !ctx.auto_approve {
+            print_hindi_card(&card, &deck, "REVIEW");
+            let approved = prompt_send_confirmation("Send these Hindi notes to Anki?")?;
+            if !approved {
+                tracing::info!("Skipping Hindi notes for '{}'", card.word);
+                continue;
+            }
         }
 
         let notes = build_hindi_notes(&card, &deck, &ctx.config.tags);
@@ -93,8 +103,17 @@ pub async fn run_english_flow(
             .with_context(|| format!("failed to generate English cloze for '{word}'"))?;
 
         if ctx.dry_run {
-            print_english_preview(&card, &deck);
+            print_english_card(&card, &deck, "DRY RUN");
             continue;
+        }
+
+        if !ctx.auto_approve {
+            print_english_card(&card, &deck, "REVIEW");
+            let approved = prompt_send_confirmation("Send this English cloze to Anki?")?;
+            if !approved {
+                tracing::info!("Skipping English note for '{}'", card.word);
+                continue;
+            }
         }
 
         let note = build_english_note(&card, &deck, &ctx.config.tags);
@@ -207,7 +226,7 @@ fn build_english_note(card: &EnglishClozeCard, deck: &str, base_tags: &[String])
     let mut fields = BTreeMap::new();
     fields.insert("Text".to_string(), card.cloze_sentence.clone());
 
-    let mut back_extra = format!("Translation: {}", card.translation.trim());
+    let mut back_extra = format!("Explanation: {}", card.translation.trim());
     if let Some(hint) = &card.hint {
         if !hint.trim().is_empty() {
             back_extra.push_str("\nHint: ");
@@ -286,21 +305,29 @@ fn report_add_note_results(word: &str, deck: &str, results: Vec<Option<i64>>) {
     }
 }
 
-fn print_hindi_preview(card: &HindiCard, deck: &str) {
-    println!("[DRY RUN][{}] {}", deck, card.word);
+fn print_hindi_card(card: &HindiCard, deck: &str, label: &str) {
+    println!("[{}][{}] {}", label, deck, card.word);
     println!("  Hindi : {}", card.hindi_sentence);
     println!("  English: {}", card.english_sentence);
 }
 
-fn print_english_preview(card: &EnglishClozeCard, deck: &str) {
-    println!("[DRY RUN][{}] {}", deck, card.word);
+fn print_english_card(card: &EnglishClozeCard, deck: &str, label: &str) {
+    println!("[{}][{}] {}", label, deck, card.word);
     println!("  Cloze       : {}", card.cloze_sentence);
-    println!("  Translation : {}", card.translation);
+    println!("  Explanation : {}", card.translation);
     if let Some(hint) = &card.hint {
         if !hint.trim().is_empty() {
             println!("  Hint        : {}", hint);
         }
     }
+}
+
+fn prompt_send_confirmation(prompt: &str) -> Result<bool> {
+    Confirm::new()
+        .with_prompt(prompt)
+        .default(true)
+        .interact()
+        .context("failed to read approval input")
 }
 
 fn prompt_language() -> Result<Option<Language>> {

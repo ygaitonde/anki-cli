@@ -47,7 +47,7 @@ Deck names are remembered automatically: after a successful (non `--dry-run`) ru
 
 ## Usage
 
-Run `cargo run -- --help` for the full flag list. Key commands are:
+Run `cargo run -- --help` for the full flag list. By default the CLI will show each generated card and prompt for approval before sending it to Anki; pass `--auto-approve` to skip the review step. Key commands are:
 
 ### Hindi sentence cards
 
@@ -75,7 +75,7 @@ cargo run -- english "serendipity"
 cargo run -- english --input words_en.txt
 ```
 
-Each word yields a cloze card with `{{c1:: ... }}` syntax, a Hindi translation shown on the back, and an optional hint.
+Each word yields a cloze card with `{{c1:: ... }}` syntax, an English explanation on the back, and an optional hint surfaced via Anki's built-in "Show Hint" link.
 
 ### Interactive mode
 
@@ -97,6 +97,7 @@ You’ll be prompted for words and asked whether to add more after each batch.
 - `--temperature <float>`: tweak the LLM creativity (0.0–2.0, default 0.7).
 - `--tags tag1,tag2`: comma-separated extra tags applied to generated notes.
 - `--dry-run`: preview generated content without calling AnkiConnect.
+- `--auto-approve`: bypass the review prompt and send notes immediately (restores the legacy behaviour).
 - `--verbose`: enable debug logging.
 
 ## Dry Run Preview
