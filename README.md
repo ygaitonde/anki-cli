@@ -34,7 +34,7 @@ Supported environment variables / config keys:
 
 ```toml
 openai_api_key   = "sk-..."      # required unless provided via CLI
-openai_model     = "gpt-4o-mini" # optional override
+openai_model     = "gpt-5"       # optional override (default when unset)
 openai_base_url  = "https://api.openai.com/v1"  # optional, for custom endpoints
 anki_connect_url = "http://127.0.0.1:8765"       # optional
 hindi_deck       = "Hindi Sentence Practice"    # remembered automatically

@@ -56,7 +56,7 @@ impl Config {
             .clone()
             .or(file_config.openai_model.clone())
             .or_else(|| env::var("OPENAI_MODEL").ok())
-            .unwrap_or_else(|| "gpt-4o-mini".to_string());
+            .unwrap_or_else(|| "gpt-4o".to_string());
 
         let openai_base_url = file_config
             .openai_base_url
@@ -178,13 +178,14 @@ impl Config {
 
         // Ensure the config directory exists
         if let Some(parent) = config_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create config directory at {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| {
+                format!("failed to create config directory at {}", parent.display())
+            })?;
         }
 
         // Serialize and write the config
-        let toml_string = toml::to_string_pretty(&file_config)
-            .context("failed to serialize config to TOML")?;
+        let toml_string =
+            toml::to_string_pretty(&file_config).context("failed to serialize config to TOML")?;
         fs::write(&config_path, toml_string)
             .with_context(|| format!("failed to write config file to {}", config_path.display()))?;
 

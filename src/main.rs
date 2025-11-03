@@ -102,6 +102,9 @@ enum Language {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load .env file if it exists (ignore errors if it doesn't)
+    let _ = dotenvy::dotenv();
+
     let cli = Cli::parse();
 
     init_tracing(cli.verbose)?;
